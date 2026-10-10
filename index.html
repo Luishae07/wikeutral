@@ -48,8 +48,13 @@ async function load(){
     const doc=new DOMParser().parseFromString(await r.text(),'text/html');
     const main=doc.querySelector('main');
     document.title=doc.title||'Wikeutral';
+    const codes=main?[...main.querySelectorAll('script')].map(x=>x.textContent):[];
+    if(main)main.querySelectorAll('script').forEach(x=>x.remove());
     m.innerHTML=main?main.innerHTML:'<p>Nothing here.</p>';
     fixLinks(m);
+    // the page's own scripts (curl examples, "Run" buttons) run here, aimed at the tunnel instead of this site
+    const host=new URL(SERVER).host;
+    for(const c of codes){try{new Function('SERVER',c.replaceAll('location.origin','SERVER').replaceAll('location.host',JSON.stringify(host)).replaceAll('fetch(url)','fetch(SERVER+url)'))(SERVER)}catch(e){console.error(e)}}
     if(r.redirected){const u=new URL(r.url);history.replaceState(null,'','#'+u.pathname+u.search)}
   }catch(e){
     SERVER=await findServer();
