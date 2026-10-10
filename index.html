@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Wikeutral</title>
+<style>
+:root{--bg:#f8f9fa;--page:#fff;--fg:#202122;--mut:#54595d;--line:#a2a9b1;--soft:#eaecf0;--link:#3366cc;--red:#ba0000;--box:#f8f9fa}
+@media (prefers-color-scheme:dark){:root{--bg:#101214;--page:#17191c;--fg:#e4e5e7;--mut:#9aa0a6;--line:#44484d;--soft:#2a2d31;--link:#7aa7ff;--red:#ff7b72;--box:#1d2024}}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.65 Georgia,serif;color:var(--fg);background:var(--bg)}
+header{background:var(--page);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+header a.logo{font:700 22px Georgia,serif;color:var(--fg);text-decoration:none}header a.logo span{color:var(--link)}
+form{display:flex;gap:6px;flex:1;min-width:180px;max-width:460px}
+input{flex:1;min-width:0;padding:7px 10px;border:1px solid var(--line);border-radius:2px;font:15px system-ui,sans-serif;background:var(--page);color:var(--fg)}
+button{padding:7px 14px;border:1px solid var(--line);background:var(--box);color:var(--fg);border-radius:2px;cursor:pointer;font:14px system-ui}
+nav{font:14px system-ui,sans-serif;display:flex;gap:14px}
+a{color:var(--link);text-decoration:none}a:hover{text-decoration:underline}a.red{color:var(--red)}
+main{max-width:900px;margin:0 auto;padding:22px 16px 60px;background:var(--page);min-height:75vh;border:1px solid var(--soft);border-top:0}
+h1{font-weight:400;border-bottom:1px solid var(--line);margin:0 0 8px;padding-bottom:4px;word-break:break-word}
+h2{font-weight:400;border-bottom:1px solid var(--soft);margin:26px 0 8px;font-size:1.5em}h3{margin:20px 0 4px;font-size:1.2em}
+.summary{border:1px solid var(--soft);background:var(--box);padding:8px 12px;margin:0 0 14px;font:15px/1.5 system-ui,sans-serif}
+.fig{float:right;clear:right;width:300px;max-width:45%;margin:0 0 12px 16px;font:13px/1.4 system-ui,sans-serif;color:var(--mut)}
+.fig img{width:100%;height:auto;display:block;border:1px solid var(--soft)}
+.foot{font:13px system-ui,sans-serif;color:var(--mut);border-top:1px solid var(--line);margin-top:30px;padding-top:10px}
+.status{font:13px system-ui,sans-serif;color:var(--mut);margin:0 0 12px}
+.status i{display:inline-block;width:9px;height:9px;border-radius:50%;background:#aaa;margin-right:6px}
+.status i.on{background:#2fb344}.status i.off{background:#d63b3b}
+li{margin:4px 0}.mut{color:var(--mut);font:14px system-ui,sans-serif}
+@media (max-width:600px){.fig{float:none;width:100%;max-width:100%;margin:0 0 12px}}
+</style>
+</head>
+<body>
+<header>
+  <a class="logo" href="#/">Wiki<span>utral</span></a>
+  <form id="sf"><input id="q" placeholder="Search Wikeutral" autocomplete="off"><button class="p">Search</button></form>
+  <nav><a href="#/random">Random</a><a id="live" href="#/" target="_blank" rel="noopener">Live site</a></nav>
+</header>
+<main id="m"></main>
+<script>
+const ADDR_URL = 'https://raw.githubusercontent.com/Luishae07/groundcheck/HEAD/wikeutral-url.txt';
+const m = document.getElementById('m');
+let SERVER = '';
+
+async function findServer() {
+  try {
+    const r = await fetch(ADDR_URL, {cache: 'no-store'});
+    const u = (await r.text()).trim().split('\n')[0];
+    if (/^https:\/\//.test(u)) { try { localStorage.setItem('wk-server', u); } catch (e) {} return u; }
+  } catch (e) {}
+  try { return localStorage.getItem('wk-server') || ''; } catch (e) { return ''; }
+}
+async function api(path) {
+  if (!SERVER) throw new Error('no address');
+  const r = await fetch(SERVER + path);
+  if (!r.ok) { const e = new Error('HTTP ' + r.status); e.status = r.status; throw e; }
+  return r.json();
+}
+function el(tag, props, ...kids) {
+  const e = document.createElement(tag);
+  if (props) for (const k in props) { if (k === 'class') e.className = props[k]; else e.setAttribute(k, props[k]); }
+  for (const k of kids) e.append(k);
+  return e;
+}
+const slug = t => encodeURIComponent(t.replace(/ /g, '_'));
+const link = t => el('a', {href: '#/' + slug(t)}, t);
+
+// inline text with [[Title]] / [[Title|shown]] links
+function inline(text, known) {
+  const out = document.createDocumentFragment(), re = /\[\[([^\]|]+)(?:\|([^\]]*))?\]\]/g;
+  let i = 0, x;
+  while ((x = re.exec(text))) {
+    out.append(text.slice(i, x.index));
+    out.append(el('a', {href: '#/' + slug(x[1].trim())}, x[2] || x[1]));
+    i = re.lastIndex;
+  }
+  out.append(text.slice(i));
+  return out;
+}
+function render(text) {
+  const box = document.createDocumentFragment();
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    if (!line) continue;
+    let h = /^(={2,4})\s*(.+?)\s*\1$/.exec(line);
+    if (h) { box.append(el(h[1].length === 2 ? 'h2' : 'h3', null, h[2])); continue; }
+    let img = /^\[\[Image:([^|\]]+)(?:\|([^\]]*))?\]\]$/.exec(line);
+    if (img) {
+      box.append(el('figure', {class: 'fig'}, el('img', {src: SERVER + '/image/' + encodeURIComponent(img[1].trim()), alt: img[2] || '', loading: 'lazy'}),
+        el('figcaption', null, img[2] || '')));
+      continue;
+    }
+    box.append(el('p', null, inline(line)));
+  }
+  return box;
+}
+function status(on, msg) {
+  return el('p', {class: 'status'}, el('i', {class: on ? 'on' : 'off'}), msg);
+}
+function down(msg) {
+  m.replaceChildren(el('h1', null, 'Wikeutral'), status(false, msg || 'The wiki is not answering right now.'),
+    el('p', null, 'It runs on a home server behind a tunnel. Try again in a minute.'));
+}
+
+async function home() {
+  m.replaceChildren(el('h1', null, 'Wikeutral'), el('p', {class: 'mut'}, 'Loading…'));
+  const [info, recent] = await Promise.all([api('/api/info'), api('/api/recent?limit=30')]);
+  const ul = el('ul'), seen = new Set();
+  for (const c of recent.changes) if (!seen.has(c.title)) { seen.add(c.title); ul.append(el('li', null, link(c.title))); }
+  m.replaceChildren(el('h1', null, 'Wikeutral'), status(true, 'Online · ' + info.articles.toLocaleString() + ' articles'),
+    el('p', null, 'A small wiki for technology. Search above, or '), el('h2', null, 'Recently updated'), ul);
+  m.children[3].append(el('a', {href: '#/random'}, 'open a random article'), '.');
+}
+async function article(title) {
+  m.replaceChildren(el('h1', null, title.replace(/_/g, ' ')), el('p', {class: 'mut'}, 'Loading…'));
+  try {
+    const a = await api('/api/article?title=' + encodeURIComponent(title.replace(/_/g, ' ')));
+    document.title = a.title + ' – Wikeutral';
+    const kids = [el('h1', null, a.title)];
+    if (a.summary) kids.push(el('div', {class: 'summary'}, a.summary));
+    kids.push(render(a.text));
+    kids.push(el('div', {class: 'foot'}, 'Text from English Wikipedia is licensed CC BY-SA 4.0; pictures have their own licences. ',
+      el('a', {href: SERVER + '/wiki/' + slug(a.title), target: '_blank', rel: 'noopener'}, 'Open on the live wiki')));
+    m.replaceChildren(...kids);
+  } catch (e) {
+    if (e.status === 404) m.replaceChildren(el('h1', null, title.replace(/_/g, ' ')), el('p', null, 'There is no article with this title.'));
+    else throw e;
+  }
+}
+async function search(q) {
+  m.replaceChildren(el('h1', null, 'Search: ' + q), el('p', {class: 'mut'}, 'Searching…'));
+  const r = await api('/api/search?q=' + encodeURIComponent(q) + '&limit=30');
+  const ul = el('ul');
+  for (const x of r.results) ul.append(el('li', null, link(x.title), el('div', {class: 'mut'}, x.snippet || x.summary || '')));
+  m.replaceChildren(el('h1', null, 'Search: ' + q), r.results.length ? ul : el('p', null, 'Nothing found.'));
+}
+async function route() {
+  window.scrollTo(0, 0);
+  document.title = 'Wikeutral';
+  const h = decodeURIComponent(location.hash.replace(/^#\/?/, ''));
+  try {
+    if (!SERVER) SERVER = await findServer();
+    document.getElementById('live').href = SERVER || '#/';
+    if (!SERVER) return down('Could not find the wiki address.');
+    if (!h) return await home();
+    if (h === 'random') { const a = await api('/api/random'); location.replace('#/' + slug(a.title)); return; }
+    if (h.startsWith('search/')) return await search(h.slice(7));
+    return await article(h);
+  } catch (e) {
+    SERVER = await findServer();       // the tunnel address may have changed: look again once
+    down();
+  }
+}
+document.getElementById('sf').onsubmit = e => { e.preventDefault(); const q = document.getElementById('q').value.trim(); if (q) location.hash = '#/search/' + encodeURIComponent(q); };
+addEventListener('hashchange', route);
+route();
+</script>
+</body>
+</html>
