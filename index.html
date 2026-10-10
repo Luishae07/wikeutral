@@ -28,7 +28,7 @@ async function findServer(){
   try{return localStorage.getItem('wk')||''}catch(e){return ''}
 }
 // everything stays on this site and is copied from the tunnel, except files to download or play
-const LEAVE=/^\/(?:image\/|api\/|file\/|json\/|xml\/|audio\/|mp3\/|download\/wikeutral)/;
+const LEAVE=/^\/(?:image\/|api\/|file\/|json\/|xml\/|audio\/|mp3\/|download\/wikeutral|download\/all-mp3)/;
 function fixLinks(root){
   root.querySelectorAll('a[href^="/"]').forEach(a=>{const p=a.getAttribute('href');
     if(LEAVE.test(p)) a.setAttribute('href',SERVER+p); else a.setAttribute('href','#'+p);});
@@ -54,7 +54,7 @@ async function load(){
     fixLinks(m);
     // the page's own scripts (curl examples, "Run" buttons) run here, aimed at the tunnel instead of this site
     const host=new URL(SERVER).host;
-    for(const c of codes){try{new Function('SERVER',c.replaceAll('location.origin','SERVER').replaceAll('location.host',JSON.stringify(host)).replaceAll('fetch(url)','fetch(SERVER+url)'))(SERVER)}catch(e){console.error(e)}}
+    for(const c of codes){try{new Function('SERVER',c.replaceAll('location.origin','SERVER').replaceAll('location.host',JSON.stringify(host)).replaceAll('fetch(url)','fetch(SERVER+url)').replaceAll("fetch('/","fetch(SERVER+'/").replaceAll('fetch("/','fetch(SERVER+"/'))(SERVER)}catch(e){console.error(e)}}
     if(r.redirected){const u=new URL(r.url);history.replaceState(null,'','#'+u.pathname+u.search)}
   }catch(e){
     SERVER=await findServer();
