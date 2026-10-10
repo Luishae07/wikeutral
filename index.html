@@ -1,159 +1,114 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Wikeutral</title>
-<style>
-:root{--bg:#f8f9fa;--page:#fff;--fg:#202122;--mut:#54595d;--line:#a2a9b1;--soft:#eaecf0;--link:#3366cc;--red:#ba0000;--box:#f8f9fa}
-@media (prefers-color-scheme:dark){:root{--bg:#101214;--page:#17191c;--fg:#e4e5e7;--mut:#9aa0a6;--line:#44484d;--soft:#2a2d31;--link:#7aa7ff;--red:#ff7b72;--box:#1d2024}}
-*{box-sizing:border-box}
-body{margin:0;font:16px/1.65 Georgia,serif;color:var(--fg);background:var(--bg)}
-header{background:var(--page);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
-header a.logo{font:700 22px Georgia,serif;color:var(--fg);text-decoration:none}header a.logo span{color:var(--link)}
-form{display:flex;gap:6px;flex:1;min-width:180px;max-width:460px}
-input{flex:1;min-width:0;padding:7px 10px;border:1px solid var(--line);border-radius:2px;font:15px system-ui,sans-serif;background:var(--page);color:var(--fg)}
-button{padding:7px 14px;border:1px solid var(--line);background:var(--box);color:var(--fg);border-radius:2px;cursor:pointer;font:14px system-ui}
-nav{font:14px system-ui,sans-serif;display:flex;gap:14px}
-a{color:var(--link);text-decoration:none}a:hover{text-decoration:underline}a.red{color:var(--red)}
-main{max-width:900px;margin:0 auto;padding:22px 16px 60px;background:var(--page);min-height:75vh;border:1px solid var(--soft);border-top:0}
-h1{font-weight:400;border-bottom:1px solid var(--line);margin:0 0 8px;padding-bottom:4px;word-break:break-word}
-h2{font-weight:400;border-bottom:1px solid var(--soft);margin:26px 0 8px;font-size:1.5em}h3{margin:20px 0 4px;font-size:1.2em}
-.summary{border:1px solid var(--soft);background:var(--box);padding:8px 12px;margin:0 0 14px;font:15px/1.5 system-ui,sans-serif}
-.fig{float:right;clear:right;width:300px;max-width:45%;margin:0 0 12px 16px;font:13px/1.4 system-ui,sans-serif;color:var(--mut)}
-.fig img{width:100%;height:auto;display:block;border:1px solid var(--soft)}
-.foot{font:13px system-ui,sans-serif;color:var(--mut);border-top:1px solid var(--line);margin-top:30px;padding-top:10px}
-.status{font:13px system-ui,sans-serif;color:var(--mut);margin:0 0 12px}
-.status i{display:inline-block;width:9px;height:9px;border-radius:50%;background:#aaa;margin-right:6px}
-.status i.on{background:#2fb344}.status i.off{background:#d63b3b}
-li{margin:4px 0}.mut{color:var(--mut);font:14px system-ui,sans-serif}
-@media (max-width:600px){.fig{float:none;width:100%;max-width:100%;margin:0 0 12px}}
-</style>
-</head>
-<body>
-<header>
-  <a class="logo" href="#/">Wiki<span>utral</span></a>
-  <form id="sf"><input id="q" placeholder="Search Wikeutral" autocomplete="off"><button class="p">Search</button></form>
-  <nav><a href="#/random">Random</a><a id="live" href="#/" target="_blank" rel="noopener">Live site</a></nav>
-</header>
-<main id="m"></main>
 <script>
-const ADDR_URL = 'https://raw.githubusercontent.com/Luishae07/groundcheck/HEAD/wikeutral-url.txt';
-const m = document.getElementById('m');
-let SERVER = '';
-
-async function findServer() {
-  try {
-    const r = await fetch(ADDR_URL, {cache: 'no-store'});
-    const u = (await r.text()).trim().split('\n')[0];
-    if (/^https:\/\//.test(u)) { try { localStorage.setItem('wk-server', u); } catch (e) {} return u; }
-  } catch (e) {}
-  try { return localStorage.getItem('wk-server') || ''; } catch (e) { return ''; }
-}
-async function api(path) {
-  if (!SERVER) throw new Error('no address');
-  const r = await fetch(SERVER + path);
-  if (!r.ok) { const e = new Error('HTTP ' + r.status); e.status = r.status; throw e; }
-  return r.json();
-}
-function el(tag, props, ...kids) {
-  const e = document.createElement(tag);
-  if (props) for (const k in props) { if (k === 'class') e.className = props[k]; else e.setAttribute(k, props[k]); }
-  for (const k of kids) e.append(k);
-  return e;
-}
-const slug = t => encodeURIComponent(t.replace(/ /g, '_'));
-const link = t => el('a', {href: '#/' + slug(t)}, t);
-
-// inline text with [[Title]] / [[Title|shown]] links
-function inline(text, known) {
-  const out = document.createDocumentFragment(), re = /\[\[([^\]|]+)(?:\|([^\]]*))?\]\]/g;
-  let i = 0, x;
-  while ((x = re.exec(text))) {
-    out.append(text.slice(i, x.index));
-    out.append(el('a', {href: '#/' + slug(x[1].trim())}, x[2] || x[1]));
-    i = re.lastIndex;
-  }
-  out.append(text.slice(i));
-  return out;
-}
-function render(text) {
-  const box = document.createDocumentFragment();
-  for (const raw of text.split('\n')) {
-    const line = raw.trim();
-    if (!line) continue;
-    let h = /^(={2,4})\s*(.+?)\s*\1$/.exec(line);
-    if (h) { box.append(el(h[1].length === 2 ? 'h2' : 'h3', null, h[2])); continue; }
-    let img = /^\[\[Image:([^|\]]+)(?:\|([^\]]*))?\]\]$/.exec(line);
-    if (img) {
-      box.append(el('figure', {class: 'fig'}, el('img', {src: SERVER + '/image/' + encodeURIComponent(img[1].trim()), alt: img[2] || '', loading: 'lazy'}),
-        el('figcaption', null, img[2] || '')));
-      continue;
-    }
-    box.append(el('p', null, inline(line)));
-  }
-  return box;
-}
-function status(on, msg) {
-  return el('p', {class: 'status'}, el('i', {class: on ? 'on' : 'off'}), msg);
-}
-function down(msg) {
-  m.replaceChildren(el('h1', null, 'Wikeutral'), status(false, msg || 'The wiki is not answering right now.'),
-    el('p', null, 'It runs on a home server behind a tunnel. Try again in a minute.'));
-}
-
-async function home() {
-  m.replaceChildren(el('h1', null, 'Wikeutral'), el('p', {class: 'mut'}, 'Loading…'));
-  const [info, recent] = await Promise.all([api('/api/info'), api('/api/recent?limit=30')]);
-  const ul = el('ul'), seen = new Set();
-  for (const c of recent.changes) if (!seen.has(c.title)) { seen.add(c.title); ul.append(el('li', null, link(c.title))); }
-  m.replaceChildren(el('h1', null, 'Wikeutral'), status(true, 'Online · ' + info.articles.toLocaleString() + ' articles'),
-    el('p', null, 'A small wiki for technology. Search above, or '), el('h2', null, 'Recently updated'), ul);
-  m.children[3].append(el('a', {href: '#/random'}, 'open a random article'), '.');
-}
-async function article(title) {
-  m.replaceChildren(el('h1', null, title.replace(/_/g, ' ')), el('p', {class: 'mut'}, 'Loading…'));
-  try {
-    const a = await api('/api/article?title=' + encodeURIComponent(title.replace(/_/g, ' ')));
-    document.title = a.title + ' – Wikeutral';
-    const kids = [el('h1', null, a.title)];
-    if (a.summary) kids.push(el('div', {class: 'summary'}, a.summary));
-    kids.push(render(a.text));
-    kids.push(el('div', {class: 'foot'}, 'Text from English Wikipedia is licensed CC BY-SA 4.0; pictures have their own licences. ',
-      el('a', {href: SERVER + '/wiki/' + slug(a.title), target: '_blank', rel: 'noopener'}, 'Open on the live wiki')));
-    m.replaceChildren(...kids);
-  } catch (e) {
-    if (e.status === 404) m.replaceChildren(el('h1', null, title.replace(/_/g, ' ')), el('p', null, 'There is no article with this title.'));
-    else throw e;
-  }
-}
-async function search(q) {
-  m.replaceChildren(el('h1', null, 'Search: ' + q), el('p', {class: 'mut'}, 'Searching…'));
-  const r = await api('/api/search?q=' + encodeURIComponent(q) + '&limit=30');
-  const ul = el('ul');
-  for (const x of r.results) ul.append(el('li', null, link(x.title), el('div', {class: 'mut'}, x.snippet || x.summary || '')));
-  m.replaceChildren(el('h1', null, 'Search: ' + q), r.results.length ? ul : el('p', null, 'Nothing found.'));
-}
-async function route() {
-  window.scrollTo(0, 0);
-  document.title = 'Wikeutral';
-  const h = decodeURIComponent(location.hash.replace(/^#\/?/, ''));
-  try {
-    if (!SERVER) SERVER = await findServer();
-    document.getElementById('live').href = SERVER || '#/';
-    if (!SERVER) return down('Could not find the wiki address.');
-    if (!h) return await home();
-    if (h === 'random') { const a = await api('/api/random'); location.replace('#/' + slug(a.title)); return; }
-    if (h.startsWith('search/')) return await search(h.slice(7));
-    return await article(h);
-  } catch (e) {
-    SERVER = await findServer();       // the tunnel address may have changed: look again once
-    down();
-  }
-}
-document.getElementById('sf').onsubmit = e => { e.preventDefault(); const q = document.getElementById('q').value.trim(); if (q) location.hash = '#/search/' + encodeURIComponent(q); };
-addEventListener('hashchange', route);
-route();
+// the real Wikeutral page below, copied from the tunnel; every link and picture points at the live tunnel address
+(function(){var u='';try{var x=new XMLHttpRequest();x.open('GET','https://raw.githubusercontent.com/Luishae07/groundcheck/HEAD/wikeutral-url.txt?'+Date.now(),false);x.send();u=x.responseText.trim().split('\n')[0];}catch(e){}
+if(/^https:\/\//.test(u))document.write('<base href="'+u+'/">');})();
 </script>
-</body>
-</html>
+<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+<title>Home – Wikeutral</title><style>body{margin:0;font:16px/1.65 Georgia,serif;color:#202122;background:#f8f9fa}
+header{background:#fff;border-bottom:1px solid #a2a9b1;padding:10px 24px;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+header a.logo{font:700 22px Georgia,serif;color:#202122;text-decoration:none}header a.logo span{color:#3366cc}
+form.s{display:flex;gap:6px;flex:1;min-width:200px;max-width:480px}
+input,textarea{padding:7px 10px;border:1px solid #a2a9b1;border-radius:2px;font:15px system-ui,sans-serif;box-sizing:border-box}
+input{flex:1}textarea{width:100%;min-height:60vh;font:14px/1.5 ui-monospace,monospace}
+button{padding:7px 14px;border:1px solid #a2a9b1;background:#f8f9fa;border-radius:2px;cursor:pointer}
+button.p{background:#3366cc;color:#fff;border-color:#3366cc}
+main{max-width:900px;margin:0 auto;padding:22px 24px 60px;background:#fff;min-height:70vh;border:1px solid #eaecf0;border-top:0}
+h1{font-weight:400;border-bottom:1px solid #a2a9b1;margin:0 0 6px;padding-bottom:4px}
+.tabs{font:14px system-ui,sans-serif;margin-bottom:14px;display:flex;gap:14px}
+a{color:#3366cc;text-decoration:none}a:hover{text-decoration:underline}a.red{color:#ba0000}
+h2{font-weight:400;border-bottom:1px solid #c8ccd1;margin:26px 0 8px;font-size:1.5em}h3{margin:20px 0 4px;font-size:1.2em}h4{margin:16px 0 4px}
+.summary{border:1px solid #c8ccd1;background:#f8f9fa;padding:8px 12px;margin:0 0 14px;font:15px/1.5 system-ui,sans-serif}.summary b{margin-right:6px}
+.foot{font:13px system-ui,sans-serif;color:#54595d;border-top:1px solid #a2a9b1;margin-top:30px;padding-top:10px}
+li{margin:3px 0}.grid{columns:3 220px}.fig{float:right;clear:right;width:300px;max-width:45%;margin:4px 0 12px 18px;border:1px solid #c8ccd1;background:#f8f9fa;padding:4px;font:13px system-ui,sans-serif}.fig img{width:100%;display:block}.fig i{display:block;padding:4px 2px;color:#54595d;font-style:normal}.gal{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}.gal div{font:12px system-ui,sans-serif;word-break:break-all}.gal img{width:100%;height:120px;object-fit:cover;border:1px solid #c8ccd1}.meta{font:13px system-ui,sans-serif;color:#54595d}.newsbox{border:1px solid #c8ccd1;background:#f8f9fa;padding:8px 14px;margin:14px 0}.newsbox h2{margin:0 0 4px;font-size:1.15em;border:0}.newsbox ul{margin:4px 0;padding-left:20px}.news{border-top:1px solid #c8ccd1;padding:12px 0}.news h2{margin:0;font-size:1.3em;border:0}.newspic{display:block;width:420px;max-width:100%;margin:6px 0 10px;border:1px solid #c8ccd1}.newsbox .thumb{width:34px;height:34px;object-fit:cover;vertical-align:middle;margin-right:8px;border:1px solid #c8ccd1}header .themebtn{margin-left:auto;padding:4px 10px;font:600 12px system-ui,sans-serif}:root[data-theme=dark]{color-scheme:dark}:root[data-theme=dark] body{background:#0f1216;color:#e2e5e9}:root[data-theme=dark] header{background:#171b21;border-bottom-color:#343b44}:root[data-theme=dark] header a.logo{color:#e2e5e9}:root[data-theme=dark] header a.logo span{color:#7ea6f7}:root[data-theme=dark] main{background:#171b21;border-color:#2a3038}:root[data-theme=dark] h1,:root[data-theme=dark] h2{border-bottom-color:#343b44}:root[data-theme=dark] a{color:#7ea6f7}:root[data-theme=dark] a.red{color:#ff7b72}:root[data-theme=dark] a.dl{color:#fff;background:#3d6fd8;border-color:#3d6fd8}:root[data-theme=dark] input,:root[data-theme=dark] textarea{background:#0f1216;color:#e2e5e9;border-color:#3d4650}:root[data-theme=dark] button{background:#222831;color:#e2e5e9;border-color:#3d4650}:root[data-theme=dark] button.p{background:#3d6fd8;color:#fff;border-color:#3d6fd8}:root[data-theme=dark] .foot{color:#9aa4af;border-top-color:#343b44}:root[data-theme=dark] .meta,:root[data-theme=dark] .fig i{color:#9aa4af}:root[data-theme=dark] .fig,:root[data-theme=dark] .summary,:root[data-theme=dark] .newsbox,:root[data-theme=dark] pre.out,:root[data-theme=dark] pre.ex{background:#1a1f26;border-color:#343b44}:root[data-theme=dark] .news{border-top-color:#343b44}:root[data-theme=dark] .newspic,:root[data-theme=dark] .newsbox .thumb,:root[data-theme=dark] .gal img{border-color:#343b44}:root[data-theme=dark] code,:root[data-theme=dark] .m{background:#222831;border-color:#3d4650}:root[data-theme=dark] [style*="eaecf0"]{border-bottom-color:#2a3038!important}:root[data-theme=dark] [style*="c8ccd1"]{border-color:#343b44!important;background:#1a1f26!important}@media (prefers-color-scheme:dark){:root:not([data-theme=light]){color-scheme:dark}:root:not([data-theme=light]) body{background:#0f1216;color:#e2e5e9}:root:not([data-theme=light]) header{background:#171b21;border-bottom-color:#343b44}:root:not([data-theme=light]) header a.logo{color:#e2e5e9}:root:not([data-theme=light]) header a.logo span{color:#7ea6f7}:root:not([data-theme=light]) main{background:#171b21;border-color:#2a3038}:root:not([data-theme=light]) h1,:root:not([data-theme=light]) h2{border-bottom-color:#343b44}:root:not([data-theme=light]) a{color:#7ea6f7}:root:not([data-theme=light]) a.red{color:#ff7b72}:root:not([data-theme=light]) a.dl{color:#fff;background:#3d6fd8;border-color:#3d6fd8}:root:not([data-theme=light]) input,:root:not([data-theme=light]) textarea{background:#0f1216;color:#e2e5e9;border-color:#3d4650}:root:not([data-theme=light]) button{background:#222831;color:#e2e5e9;border-color:#3d4650}:root:not([data-theme=light]) button.p{background:#3d6fd8;color:#fff;border-color:#3d6fd8}:root:not([data-theme=light]) .foot{color:#9aa4af;border-top-color:#343b44}:root:not([data-theme=light]) .meta,:root:not([data-theme=light]) .fig i{color:#9aa4af}:root:not([data-theme=light]) .fig,:root:not([data-theme=light]) .summary,:root:not([data-theme=light]) .newsbox,:root:not([data-theme=light]) pre.out,:root:not([data-theme=light]) pre.ex{background:#1a1f26;border-color:#343b44}:root:not([data-theme=light]) .news{border-top-color:#343b44}:root:not([data-theme=light]) .newspic,:root:not([data-theme=light]) .newsbox .thumb,:root:not([data-theme=light]) .gal img{border-color:#343b44}:root:not([data-theme=light]) code,:root:not([data-theme=light]) .m{background:#222831;border-color:#3d4650}:root:not([data-theme=light]) [style*="eaecf0"]{border-bottom-color:#2a3038!important}:root:not([data-theme=light]) [style*="c8ccd1"]{border-color:#343b44!important;background:#1a1f26!important}}</style><script>
+(function () {
+  var K = 'wtheme', r = document.documentElement;
+  function get() { try { return localStorage.getItem(K) || ''; } catch (e) { return ''; } }
+  function set(v) { try { if (v) localStorage.setItem(K, v); else localStorage.removeItem(K); } catch (e) {} apply(); }
+  function apply() {
+    var v = get();
+    if (v) r.setAttribute('data-theme', v); else r.removeAttribute('data-theme');
+    var b = document.getElementById('theme');
+    if (b) b.textContent = v === 'dark' ? 'Dark' : v === 'light' ? 'Light' : 'Auto';
+  }
+  apply();
+  document.addEventListener('DOMContentLoaded', function () {
+    apply();
+    var b = document.getElementById('theme');
+    if (b) b.onclick = function () { var v = get(); set(v === '' ? 'dark' : v === 'dark' ? 'light' : ''); };
+  });
+})();
+</script><script>console.log("%c\n        ,,,,,,,,,,,,,,,,,\n     ,;;;;;;;;;;;;;;;;;;;;,\n    ;;;;;;;;;;;;;;;;;;;;;;;;\n   ;;;'''''''''''''''''';;;;\n   ;;'   __        __    ';;\n   ;;   (o )      ( o)    ;;\n   ;;    ''   /\\   ''     ;;\n    ;;         ''        ;;\n     ;;    \\________/   ;;\n      ';;   \\______/  ;;'\n        ';;;;;;;;;;;;'\n\n   N E V E R   G O N N A\n   G I V E   Y O U   U P\n\n   Hey, you found the console.\n   https://www.youtube.com/watch?v=dQw4w9WgXcQ\n", 'color:#e0245e;font:13px/1.15 monospace');if (location.pathname !== '/statistics') fetch('/api/latest').then(r => r.json()).then(d => {console.log('%cLast page written:%c ' + d.title + ' (revision ' + d.id + ')', 'font-weight:bold', ''); console.log(d.text);}).catch(() => {});window.ls = (() => {
+  const j = async (u, o) => (await fetch(u, o)).json();
+  const q = encodeURIComponent;
+  const b = s => console.log('%c' + s, 'font-weight:bold');
+  const ls = {};
+  const cmds = [
+    'ls.list                                  every article title',
+    'ls.read("Title")                         print the whole article (returns its text)',
+    'ls.search("words", 20)                   find articles',
+    'ls.random()                              read a random article',
+    'ls.recent(20)                            latest edits',
+    'ls.history("Title")                      every saved version',
+    'ls.stats()                               live totals',
+    'ls.write("Title", "text", "summary")     create or replace an article',
+    'ls.append("Title", "more text")          add text to the end of an article',
+    'ls.images()                              list uploaded images',
+    'ls.upload()                              pick an image file and upload it',
+    'ls.news(5)                               the latest news',
+    'ls.newsLogin("key")                     log in as the owner (needed to post news)',
+    'ls.postNews("Headline", "text")         post a news item',
+    'ls.open("Title")                         go to that page',
+    'ls.watch()  /  ls.unwatch()              print every save as it happens',
+    'ls.disable(rick.linux.good)              turn off the Linux tabs + rickroll  (ls.enable(rick.linux.good) turns it on)'
+  ];
+  ls.read = async t => { const a = await j('/api/article?title=' + q(t)); if (a.error) return console.log(a.error); b(a.title + ' (' + a.text.length + ' characters)'); console.log(a.text); return a.text; };
+  ls.search = async (s, n = 20) => { const r = await j('/api/search?q=' + q(s) + '&limit=' + n); const t = r.results.map(x => x.title); b(t.length + ' results for "' + s + '"'); console.log(t.join('\n')); return t; };
+  ls.random = async () => { const a = await j('/api/random'); b(a.title + ' (' + a.text.length + ' characters)'); console.log(a.text); return a.title; };
+  ls.recent = async (n = 20) => { const r = await j('/api/recent?limit=' + n); console.table(r.changes.map(c => ({ time: new Date(c.time * 1000).toLocaleString(), title: c.title, summary: c.summary }))); return r.changes; };
+  ls.history = async t => { const r = await j('/api/history?title=' + q(t)); if (r.error) return console.log(r.error); console.table(r.revisions.map(v => ({ revision: v.id, time: new Date(v.time * 1000).toLocaleString(), characters: v.chars, summary: v.summary }))); return r.revisions; };
+  ls.stats = async () => { const s = await j('/api/statistics'); const { newest, longest_article, latest, ...rest } = s; console.table(rest); return s; };
+  ls.write = async (t, text, summary) => { const r = await j('/api/article', { method: 'POST', body: JSON.stringify({ title: t, text: text, summary: summary || 'Edited from the console' }) }); console.log(r.ok ? 'saved: ' + r.title : r.error); return r; };
+  ls.append = async (t, more) => { const a = await j('/api/article?title=' + q(t)); if (a.error) return console.log(a.error); return ls.write(a.title, a.text + '\n' + more, 'Added text from the console'); };
+  ls.images = async () => { const r = await j('/api/images?limit=200'); console.table(r.images.map(i => ({ name: i.name, type: i.mime, kb: Math.round(i.bytes / 1024) }))); return r.images; };
+  ls.upload = () => new Promise(res => { const f = document.createElement('input'); f.type = 'file'; f.accept = 'image/*'; f.onchange = async () => { const x = f.files[0]; if (!x) return res(); const r = await j('/api/image?name=' + q(x.name), { method: 'POST', body: x }); console.log(r.ok ? 'uploaded. Put this in an article:  ' + r.wikitext.replace('caption', 'your caption') : r.error); res(r); }; f.click(); });
+  ls.open = t => { location.href = '/wiki/' + q(String(t).replace(/ /g, '_')); };
+  let ws = null;
+  ls.watch = () => { if (ws) return; ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/statistics'); let last; ws.onmessage = e => { const s = JSON.parse(e.data); if (last !== undefined && s.latest && s.latest.id !== last) b('Saved: ' + s.latest.title + ' (revision ' + s.latest.id + ')'); if (s.latest) last = s.latest.id; }; console.log('watching for saves. ls.unwatch() stops.'); };
+  ls.unwatch = () => { if (ws) { ws.close(); ws = null; console.log('stopped'); } };
+  ls.news = async (n = 5) => { const r = await j('/api/news?limit=' + n); r.news.forEach(x => { b(x.title + '  (' + new Date(x.time * 1000).toLocaleString() + ')'); console.log(x.body); }); return r.news; };
+  ls.newsLogin = async key => { const r = await fetch('/news/login', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'key=' + encodeURIComponent(key) }); console.log(r.status === 403 ? 'wrong key' : 'logged in as the owner'); };
+  ls.postNews = async (title, body, author, image) => { const r = await j('/api/news', { method: 'POST', body: JSON.stringify({ title: title, body: body, author: author || '', image: image || '' }) }); console.log(r.ok ? 'posted as news item ' + r.id : r.error + '  (ls.newsLogin("key") first)'); return r; };
+  Object.defineProperty(ls, 'list', { get() {
+    (async () => { let t = [], o = 0;
+      for (;;) { const r = await j('/api/list?limit=200&offset=' + o); if (!r.titles.length) break; t = t.concat(r.titles); o += 200; }
+      b(t.length + ' articles');
+      console.log(t.map((x, i) => String(i + 1).padStart(4) + '  ' + x).join('\n'));
+    })();
+    return () => {};
+  } });
+  Object.defineProperty(ls, 'help', { get() { b('Wikeutral console'); console.log(cmds.join('\n')); return () => {}; } });
+  window.rick = { linux: { good: 'rick.linux.good' } };            // the switch names, so  ls.disable(rick.linux.good)  reads naturally
+  const flag = 'ls_rick_off';
+  const off = () => { try { return localStorage.getItem(flag) === '1'; } catch (e) { return false; } };
+  ls.disable = k => { if (k !== rick.linux.good) return console.log('Unknown switch. Try: ls.disable(rick.linux.good)');
+    try { localStorage.setItem(flag, '1'); } catch (e) {} console.log('rick.linux.good is OFF (remembered in this browser). ls.enable(rick.linux.good) turns it back on.'); };
+  ls.enable = k => { if (k !== rick.linux.good) return console.log('Unknown switch. Try: ls.enable(rick.linux.good)');
+    try { localStorage.removeItem(flag); } catch (e) {} console.log('rick.linux.good is ON'); };
+  ls.isOff = off;
+  console.log('Type ls.help for the Wikeutral console commands.');
+  return ls;
+})();
+(() => {                                  // opens the Linux page 10 times when the dev tools get opened (docked panel: the window's inner size shrinks)
+  const size = () => [window.outerWidth - window.innerWidth, window.outerHeight - window.innerHeight, window.devicePixelRatio];
+  let base = size(), was = false;
+  setInterval(() => {
+    const s = size();
+    if (s[2] !== base[2]) { base = s; was = false; return; }        // page zoom changed: measure again
+    const open = s[0] > base[0] + 120 || s[1] > base[1] + 120;
+    if (open && !was && !ls.isOff()) { for (let i = 0; i < 10; i++) window.open('/wiki/Linux', '_blank'); window.open('https://www.youtube.com/watch?v=dQw4w9WgXcQ', '_blank'); }
+    was = open;
+  }, 400);
+})();</script>
+<header><a class=logo href="/">Wik<span>eutral</span></a>
+<form class=s action="/search"><input name=q value="" placeholder="Search Wikeutral"><button>Search</button></form>
+<a href="/random">Random</a><a href="/new">New article</a><a href="/images">Images</a><a href="/statistics">Statistics</a><a href="/docs">API</a><a href="/news">News</a><a href="/download">Download</a><button type=button id=theme class=themebtn title="Switch between automatic, dark and light">Auto</button><a href="/recent">Recent changes</a></header><main><h1>Wikeutral, the encyclopedia</h1><p>5,353 articles, and anyone can <a href='/new'>write a new one</a> or edit an existing one.</p><div class=newsbox><h2><a href="/news">In the news</a></h2><ul><li><img class=thumb src="/image/news-pictures-announcement.png" alt=""><a href="/news/61"><b>News items can have pictures</b></a> <span class=meta>Sep 28</span></li><li><a href="/news/60"><b>graphics appears in 21 summaries</b></a> <span class=meta>Sep 28</span></li><li><a href="/news/59"><b>processor appears in 11 summaries</b></a> <span class=meta>Sep 28</span></li><li><a href="/news/58"><b>artificial intelligence appears in 12 summaries</b></a> <span class=meta>Sep 28</span></li><li><a href="/news/57"><b>machine learning appears in 15 summaries</b></a> <span class=meta>Sep 28</span></li></ul><p class=meta><a href="/news">All news</a></p></div><div class=grid><ul><li><a href="/wiki/ALSA">ALSA</a></li><li><a href="/wiki/Android_Runtime">Android Runtime</a></li><li><a href="/wiki/Anita_Borg">Anita Borg</a></li><li><a href="/wiki/AppDynamics">AppDynamics</a></li><li><a href="/wiki/Apple_A11">Apple A11</a></li><li><a href="/wiki/Apple_Lisa">Apple Lisa</a></li><li><a href="/wiki/Atom_%28text_editor%29">Atom (text editor)</a></li><li><a href="/wiki/Atom_web_standard">Atom web standard</a></li><li><a href="/wiki/Automatic_Dependent_Surveillance_Broadcast">Automatic Dependent Surveillance Broadcast</a></li><li><a href="/wiki/Bebo">Bebo</a></li><li><a href="/wiki/Blackbox">Blackbox</a></li><li><a href="/wiki/Blackwater">Blackwater</a></li><li><a href="/wiki/Blue_Jasmine">Blue Jasmine</a></li><li><a href="/wiki/Boombox">Boombox</a></li><li><a href="/wiki/Branching_%28version_control%29">Branching (version control)</a></li><li><a href="/wiki/Business_intelligence">Business intelligence</a></li><li><a href="/wiki/Cardigan_Bay">Cardigan Bay</a></li><li><a href="/wiki/Consul_%28software%29">Consul (software)</a></li><li><a href="/wiki/Context-free_grammar">Context-free grammar</a></li><li><a href="/wiki/Continuous_integration">Continuous integration</a></li><li><a href="/wiki/Control_system">Control system</a></li><li><a href="/wiki/DaDa">DaDa</a></li><li><a href="/wiki/Devuan">Devuan</a></li><li><a href="/wiki/Digital_native">Digital native</a></li><li><a href="/wiki/Enterprise_service_bus">Enterprise service bus</a></li><li><a href="/wiki/Epic_%28web_browser%29">Epic (web browser)</a></li><li><a href="/wiki/Fenwick_tree">Fenwick tree</a></li><li><a href="/wiki/Fiber-optic_communication">Fiber-optic communication</a></li><li><a href="/wiki/Floating_point_operations_per_second">Floating point operations per second</a></li><li><a href="/wiki/Fork_bomb">Fork bomb</a></li><li><a href="/wiki/Heterogeneous_computing">Heterogeneous computing</a></li><li><a href="/wiki/Inmarsat">Inmarsat</a></li><li><a href="/wiki/Intel_C_Compiler">Intel C Compiler</a></li><li><a href="/wiki/Ivan_Damg%C3%A5rd">Ivan Damgård</a></li><li><a href="/wiki/JavaFX">JavaFX</a></li><li><a href="/wiki/John_von_Neumann">John von Neumann</a></li><li><a href="/wiki/Juniper_Networks">Juniper Networks</a></li><li><a href="/wiki/Kickstarter">Kickstarter</a></li><li><a href="/wiki/Kruskal%27s_algorithm">Kruskal&#x27;s algorithm</a></li><li><a href="/wiki/Loch_Leven">Loch Leven</a></li><li><a href="/wiki/Loch_Morar">Loch Morar</a></li><li><a href="/wiki/Mac_computer">Mac computer</a></li><li><a href="/wiki/Mastercard">Mastercard</a></li><li><a href="/wiki/MicroStrategy">MicroStrategy</a></li><li><a href="/wiki/Morris_Motors">Morris Motors</a></li><li><a href="/wiki/Network_interface_controller">Network interface controller</a></li><li><a href="/wiki/OLED">OLED</a></li><li><a href="/wiki/Phonograph">Phonograph</a></li><li><a href="/wiki/Ray_tracing_graphics">Ray tracing graphics</a></li><li><a href="/wiki/Refreshable_braille_display">Refreshable braille display</a></li><li><a href="/wiki/Robert_Cailliau">Robert Cailliau</a></li><li><a href="/wiki/Robert_Kahn_computer_scientist">Robert Kahn computer scientist</a></li><li><a href="/wiki/Shard_%28database_architecture%29">Shard (database architecture)</a></li><li><a href="/wiki/Signal_%28software%29">Signal (software)</a></li><li><a href="/wiki/Software_quality">Software quality</a></li><li><a href="/wiki/Sony_Interactive_Entertainment">Sony Interactive Entertainment</a></li><li><a href="/wiki/TOML">TOML</a></li><li><a href="/wiki/Tata_Consultancy_Services">Tata Consultancy Services</a></li><li><a href="/wiki/TvOS">TvOS</a></li><li><a href="/wiki/UTF-8">UTF-8</a></li></ul></div></main>
