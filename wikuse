@@ -1,0 +1,222 @@
+#!/bin/sh
+# wikuse: read a Wikeutral wiki offline from its .file export (gzip-compressed plain text).
+# Needs only sh, curl (or wget), gzip and awk.
+#
+#   wikuse get [URL]      download the whole wiki (default: the public tunnel)
+#   wikuse list           list all article titles
+#   wikuse show TITLE     print one article (exact title, case-insensitive)
+#   wikuse find WORD      titles of articles that contain WORD, with the number of hits
+#   wikuse random         print a random article
+#   wikuse --dump         print the whole wiki as plain text to the screen (pipe it: wikuse --dump > all.txt)
+#   wikuse --dump --download [URL]   download a fresh copy first, then print it
+#   wikuse audio TITLE    hear an article read aloud (streams from the server and plays it)
+#   wikuse info           how many articles, file size, when it was downloaded
+#
+#   wikuse cloud ...      same idea, but ask the server directly, nothing is downloaded:
+#     wikuse cloud server [URL]   show or set which server to use (saved in ~/.wikuse/server)
+#     wikuse cloud show TITLE | find WORD | random | list | info | --dump | audio TITLE
+#
+# The file is kept in ~/.wikuse/wiki.file (override with WIKUSE_FILE=/path).
+
+DIR="${WIKUSE_DIR:-$HOME/.wikuse}"
+FILE="${WIKUSE_FILE:-$DIR/wiki.file}"
+# The tunnel address changes whenever the tunnel restarts, so the server publishes the current one in the Groundcheck repo.
+URL_FILE="https://raw.githubusercontent.com/Luishae07/groundcheck/HEAD/wikeutral-url.txt"
+# default server: the address from that file (remembered in ~/.wikuse/lasturl in case GitHub is unreachable)
+default_url() {
+    u=$(curl -fsSL --max-time 8 "$URL_FILE" 2>/dev/null | head -1 | tr -d '\r ')
+    case "$u" in
+    https://*) mkdir -p "$DIR" 2>/dev/null; echo "$u" > "$DIR/lasturl" 2>/dev/null; echo "$u";;
+    *) cat "$DIR/lasturl" 2>/dev/null || { echo "cannot find the Wikeutral address (run: wikuse cloud server URL)" >&2; exit 1; };;
+    esac
+}
+
+# download URL to FILE; on a terminal show a moving wave with size and speed (the total size is not known: the export is streamed)
+fetch() {
+    if [ ! -t 2 ]; then
+        if command -v curl >/dev/null 2>&1; then curl -fsSL -o "$2" "$1"; else wget -qO "$2" "$1"; fi
+        return
+    fi
+    if command -v curl >/dev/null 2>&1; then curl -fsSL -o "$2" "$1" 2>/dev/null & else wget -qO "$2" "$1" 2>/dev/null & fi
+    cp=$!
+    trap 'kill $cp 2>/dev/null; printf "\033[?25h\n" >&2; exit 130' INT TERM
+    printf '\033[?25l' >&2
+    i=0
+    while kill -0 $cp 2>/dev/null; do
+        size=$(wc -c < "$2" 2>/dev/null); size=${size:-0}
+        awk -v i="$i" -v size="$size" 'BEGIN {
+            split("⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏", sp, " ")
+            split("▁ ▂ ▃ ▄ ▅ ▆ ▇ █ ▇ ▆ ▅ ▄ ▃ ▂", lv, " ")
+            bar = ""
+            for (c = 0; c < 28; c++) bar = bar lv[((i + c * 2) % 14) + 1]
+            mb = size / 1048576; t = (i + 1) * 0.1
+            printf "\r\033[36m%s\033[0m \033[1mdownloading wiki\033[0m \033[32m%s\033[0m  %.1f MB  \033[2m%.1f MB/s\033[0m\033[K", sp[(i % 10) + 1], bar, mb, mb / t
+        }' >&2
+        i=$((i + 1))
+        sleep 0.1
+    done
+    wait $cp; rc=$?
+    printf '\033[?25h' >&2
+    trap - INT TERM
+    if [ $rc -eq 0 ]; then
+        printf '\r\033[32m✔\033[0m wiki downloaded  %s MB in %s s\033[K\n' "$(wc -c < "$2" | awk '{printf "%.1f", $1/1048576}')" "$(awk -v i="$i" 'BEGIN {printf "%.1f", i*0.1}')" >&2
+    else
+        printf '\r\033[31m✘\033[0m download failed\033[K\n' >&2
+    fi
+    return $rc
+}
+
+# plain text of the export (the download is gzip; also accept an uncompressed file)
+text() {
+    if gzip -t "$FILE" 2>/dev/null; then gzip -dc "$FILE"; else cat "$FILE"; fi
+}
+
+case "$1" in
+audio)
+    shift; exec "$0" cloud audio "$@"
+    ;;
+--dump|dump)
+    if [ "$2" = "--download" ]; then "$0" get $3 >&2 || exit 1; fi
+    need_file
+    text
+    ;;
+get)
+    url="${2:-$(cat "$DIR/server" 2>/dev/null)}"
+    url="${url:-$(default_url)}"
+    url="${url%/}"
+    mkdir -p "$(dirname "$FILE")" || exit 1
+    fetch "$url/download/wikeutral.file" "$FILE.part" || { rm -f "$FILE.part"; exit 1; }
+    mv "$FILE.part" "$FILE"
+    echo "saved $FILE"
+    ;;
+list)
+    need_file
+    text | awk '/^##### ARTICLE/ {a=1; next} a && /^Title: / {print substr($0,8); a=0}'
+    ;;
+show)
+    need_file
+    [ -n "$2" ] || { echo "usage: wikuse show TITLE" >&2; exit 1; }
+    shift
+    want="$*"
+    text | awk -v want="$want" '
+        BEGIN { w = tolower(want) }
+        /^##### ARTICLE/ { head = 1; hit = 0; meta = ""; next }
+        head && /^##### TEXT/ { head = 0; if (hit) { printf "%s", meta; print "" ; body = 1 } ; next }
+        head { if (/^Title: /) { if (tolower(substr($0,8)) == w) hit = 1 } meta = meta $0 "\n"; next }
+        /^##### END/ { if (body) exit; next }
+        body { print }
+        END { if (!body) exit 2 }
+    ' || echo "no article called \"$want\" (try: wikuse find ...)" >&2
+    ;;
+find)
+    need_file
+    [ -n "$2" ] || { echo "usage: wikuse find WORD" >&2; exit 1; }
+    shift
+    word="$*"
+    text | awk -v word="$word" '
+        BEGIN { w = tolower(word) }
+        /^##### ARTICLE/ { head = 1; title = ""; n = 0; next }
+        head && /^Title: / { title = substr($0,8); next }
+        head && /^##### TEXT/ { head = 0; body = 1; if (index(tolower(title), w)) n++; next }
+        /^##### END/ { if (n) printf "%5d  %s\n", n, title; body = 0; next }
+        body { l = tolower($0); while ((i = index(l, w)) > 0) { n++; l = substr(l, i + length(w)) } }
+    ' | sort -rn
+    ;;
+random)
+    need_file
+    t=$(text | awk '/^##### ARTICLE/ {a=1; next} a && /^Title: / {print substr($0,8); a=0}' | awk 'BEGIN{srand()} {l[NR]=$0} END{print l[int(rand()*NR)+1]}')
+    echo "== $t =="
+    "$0" show "$t"
+    ;;
+info)
+    need_file
+    n=$(text | grep -c '^##### ARTICLE')
+    echo "file:     $FILE"
+    echo "size:     $(wc -c < "$FILE") bytes"
+    echo "articles: $n"
+    echo "saved:    $(date -r "$FILE" 2>/dev/null)"
+    ;;
+cloud)
+    SERVER="${WIKUSE_URL:-$(cat "$DIR/server" 2>/dev/null)}"
+    SERVER="${SERVER:-$(default_url)}"
+    SERVER="${SERVER%/}"
+    sub="$2"; [ $# -ge 2 ] && shift 2 || shift
+    get() { curl -fsSL "$@" || { echo "cannot reach $SERVER" >&2; return 1; }; }
+    # one article from the server: title line, then the text
+    render() { gzip -dc | awk '/^##### TEXT/ {b=1; next} /^##### END/ {b=0; next} /^Title: / && !b {print "== " substr($0,8) " =="; next} b {print}'; }
+    case "$sub" in
+    audio)
+        [ -n "$1" ] || { echo "usage: wikuse cloud audio TITLE" >&2; exit 1; }
+        if [ "$*" = "random" ]; then   # a random article
+            set -- "$(get "$SERVER/file?random=1" | gzip -dc | sed -n 's/^Title: //p' | head -1)"
+            [ -n "$1" ] || exit 1
+            printf '\033[36m♪\033[0m random article: %s\n' "$1" >&2
+        fi
+        mkdir -p "$DIR/audio"
+        base="$DIR/audio/$(printf '%s' "$*" | tr -c 'A-Za-z0-9._-' '_')"
+        out=""
+        for e in opus mp3; do [ -s "$base.$e" ] && out="$base.$e"; done
+        if [ -z "$out" ]; then
+            printf '\033[36m♪\033[0m fetching audio for %s ...\n' "$*" >&2
+            curl -fsSL --get --data-urlencode "title=$*" -o "$base.tmp" "$SERVER/api/audio" 2>/dev/null || {
+                rm -f "$base.tmp"; echo "no audio for \"$*\" on $SERVER" >&2; exit 1; }
+            # the server sends Opus (Ogg) or MP3: look at the first bytes
+            if [ "$(head -c 4 "$base.tmp")" = "OggS" ]; then out="$base.opus"; else out="$base.mp3"; fi
+            mv "$base.tmp" "$out"
+        fi
+        case "$out" in
+        *.opus) players="mpv ffplay vlc cvlc mplayer paplay open";;     # macOS afplay cannot play Opus
+        *)      players="afplay mpv ffplay mpg123 vlc paplay aplay";;
+        esac
+        for p in $players; do
+            if command -v $p >/dev/null 2>&1; then
+                printf '\033[36m♪\033[0m playing  %s\n' "$*" >&2
+                case $p in mpv) mpv --no-video "$out";; ffplay) ffplay -nodisp -autoexit -loglevel quiet "$out";; vlc|cvlc) $p --play-and-exit -I dummy "$out";; open) open "$out";; *) $p "$out";; esac
+                exit $?
+            fi
+        done
+        case "$out" in *.opus) echo "this audio is Opus, which macOS's built-in player cannot play. Install a player:  brew install mpv   (or VLC)" >&2;; esac
+        echo "saved $out  (no player found: open it with any audio app)"
+        ;;
+    --dump|dump)
+        get "$SERVER/download/wikeutral.file" | gzip -dc
+        ;;
+    server)
+        if [ -n "$1" ]; then mkdir -p "$DIR" && echo "${1%/}" > "$DIR/server" && echo "server set to ${1%/}"; else echo "$SERVER"; fi
+        ;;
+    show)
+        [ -n "$1" ] || { echo "usage: wikuse cloud show TITLE" >&2; exit 1; }
+        t=$(printf '%s' "$*" | sed 's/ /_/g; s/%/%25/g; s/?/%3F/g; s/#/%23/g')
+        get "$SERVER/file/$t" | render
+        ;;
+    find)
+        [ -n "$1" ] || { echo "usage: wikuse cloud find WORD" >&2; exit 1; }
+        get --get --data-urlencode "q=$*" "$SERVER/file" | gzip -dc |
+            awk '/^##### ARTICLE/ {h=1; next} h && /^Title: / {t=substr($0,8); next} h && /^Summary: / {print t "  -  " substr($0,10); h=0}'
+        ;;
+    random)
+        get "$SERVER/file?random=1" | render
+        ;;
+    list)
+        off=0
+        while :; do
+            page=$(get "$SERVER/file?offset=$off" | gzip -dc | awk '/^##### ARTICLE/ {h=1; next} h && /^Title: / {print substr($0,8); h=0}')
+            [ -n "$page" ] || break
+            printf '%s\n' "$page"
+            [ "$(printf '%s\n' "$page" | wc -l)" -ge 200 ] || break
+            off=$((off + 200))
+        done
+        ;;
+    info)
+        echo "server: $SERVER"
+        get "$SERVER/file?offset=0" | gzip -dc | sed -n '1s/^# Wikeutral export: \([0-9]*\) article.*/articles: \1/p'
+        ;;
+    *)
+        echo "usage: wikuse cloud server|show|find|random|list|info|audio|--dump" >&2; exit 1
+        ;;
+    esac
+    ;;
+*)
+    sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'
+    ;;
+esac
