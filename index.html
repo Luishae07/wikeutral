@@ -27,15 +27,14 @@ async function findServer(){
       if(/^https:\/\//.test(u)){try{localStorage.setItem('wk',u)}catch(e){}return u}}catch(e){}
   try{return localStorage.getItem('wk')||''}catch(e){return ''}
 }
-// pages that stay on this site (copied from the tunnel); everything else opens on the tunnel itself
-const STAY=/^\/(?:wiki\/|search|random|recent|news|download|docs|$)/;
+// everything stays on this site and is copied from the tunnel, except files to download or play
+const LEAVE=/^\/(?:image\/|api\/|file\/|json\/|xml\/|audio\/|mp3\/|download\/wikeutral)/;
 function fixLinks(root){
   root.querySelectorAll('a[href^="/"]').forEach(a=>{const p=a.getAttribute('href');
-    if(STAY.test(p)&&!p.startsWith('/download/')) a.setAttribute('href','#'+p); else a.setAttribute('href',SERVER+p);});
+    if(LEAVE.test(p)) a.setAttribute('href',SERVER+p); else a.setAttribute('href','#'+p);});
   root.querySelectorAll('[src^="/"]').forEach(e=>e.setAttribute('src',SERVER+e.getAttribute('src')));
   root.querySelectorAll('form').forEach(f=>{f.onsubmit=ev=>{ev.preventDefault();
     const a=(f.getAttribute('action')||'/'),q=new URLSearchParams(new FormData(f)).toString();
-    if(f.method&&f.method.toLowerCase()==='post'){window.open(SERVER+a,'_blank');return}
     location.hash='#'+a+(q?'?'+q:'')}});
 }
 async function load(){
